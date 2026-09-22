@@ -1,0 +1,47 @@
+# ghdock
+
+ghdock is a Ratatui dashboard for the pull requests in your GitHub inbox. It polls GitHub notifications, enriches pull-request threads with their current state and counts, and alerts when a new item or a tracked detail changes.
+
+## Setup
+
+ghdock gets its GitHub credentials from the GitHub CLI. Authenticate once with a classic token that has the notifications scope:
+
+    gh auth login
+    cargo run
+
+The default poll interval is 60 seconds. GitHub recommends at least that interval for notification polling; override it with:
+
+    GHDOCK_POLL_INTERVAL=120 cargo run
+
+Closed pull requests are hidden by default. Show them with:
+
+    GHDOCK_SHOW_CLOSED=true cargo run
+
+When consecutive syncs have no visible changes, the poll interval doubles up to 15 minutes, then resets to the base interval after a change. Configure the cap with:
+
+    GHDOCK_MAX_POLL_INTERVAL=1800 cargo run
+
+## Controls
+
+- Up / Down or j / k: move through pull requests
+- Enter or o: open the selected pull request in the browser
+- r: refresh immediately
+- ?: show help
+- q / Esc: quit
+
+Changes produce a terminal bell. macOS also receives an osascript desktop notification, and Linux uses notify-send when it is installed.
+
+The GitHub notifications endpoint is the polling source because it carries inbox reasons such as review requests, comments, mentions, assignments, and state changes. The initial sync is silent; alerts begin on the next sync to avoid treating the existing inbox as new work.
+
+## Structure
+
+The binary is a thin composition root. The application is split into modules with one-way dependencies:
+
+- `github`: GitHub CLI authentication, API requests, and response mapping
+- `poller`: background polling, change detection, and backoff scheduling
+- `domain`: pull-request data and polling rules
+- `app`: user-facing state, selection, filtering, and alerts
+- `controller`: terminal event loop and input handling
+- `ui`: Ratatui rendering only
+- `platform`: terminal setup, browser opening, and desktop notifications
+- `config`: environment-backed runtime configuration
