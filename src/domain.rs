@@ -17,6 +17,8 @@ pub(crate) struct Pull {
     pub(crate) reason: String,
     pub(crate) unread: bool,
     pub(crate) updated_at: String,
+    pub(crate) updated_by_me: bool,
+    pub(crate) approved_by_me: bool,
     pub(crate) comments: u64,
     pub(crate) review_comments: u64,
     pub(crate) commits: u64,
@@ -68,6 +70,10 @@ impl Pull {
             other => other.replace('_', " "),
         }
     }
+
+    pub(crate) fn counts_as_update(&self) -> bool {
+        !self.updated_by_me
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +90,7 @@ pub(crate) fn snapshot_signature(
         .pulls
         .iter()
         .filter(|pull| show_closed || pull.state != "closed")
+        .filter(|pull| !pull.approved_by_me)
         .map(|pull| (pull.key(), pull.fingerprint()))
         .collect()
 }

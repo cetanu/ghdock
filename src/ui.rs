@@ -102,31 +102,22 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             .add_modifier(Modifier::BOLD),
     )
     .height(1);
-    let rows = app.pulls().iter().map(|pull| {
-        let unread = if pull.unread { "●" } else { " " };
-        let state_color = match pull.state.as_str() {
-            "open" => Color::Green,
-            "closed" => Color::Red,
-            _ => Color::Yellow,
-        };
-        Row::new(vec![
-            Cell::from(unread).style(Style::default().fg(if pull.unread {
-                Color::Rgb(255, 159, 67)
-            } else {
-                Color::DarkGray
-            })),
-            Cell::from(pull.repo.clone()).style(Style::default().fg(Color::Gray)),
-            Cell::from(format!("#{} {}", pull.number, truncate(&pull.title, 54))),
-            Cell::from(pull.activity_label()).style(Style::default().fg(Color::Rgb(164, 174, 196))),
-            Cell::from(pull.status_label()).style(
+    let entries = grouped_entries(app);
+    let rows = entries.iter().map(|entry| match entry {
+        InboxEntry::Group(label) => Row::new(vec![
+            Cell::from("").style(Style::default().fg(Color::DarkGray)),
+            Cell::from(*label).style(
                 Style::default()
-                    .fg(state_color)
+                    .fg(Color::Rgb(255, 159, 67))
                     .add_modifier(Modifier::BOLD),
             ),
-            Cell::from(format_updated(&pull.updated_at))
-                .style(Style::default().fg(Color::DarkGray)),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
         ])
-        .height(1)
+        .height(1),
+        InboxEntry::Pull(index) => pull_row(&app.pulls()[*index]),
     });
     let widths = [
         Constraint::Length(2),
@@ -157,12 +148,66 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 .border_style(Style::default().fg(Color::Rgb(58, 64, 75))),
         );
     let mut table_state = TableState::default();
-    table_state.select((!app.pulls().is_empty()).then_some(app.selected_index()));
+    table_state.select(entries.iter().position(
+        |entry| matches!(entry, InboxEntry::Pull(index) if *index == app.selected_index()),
+    ));
     frame.render_stateful_widget(table, area, &mut table_state);
 
     if let Some(pull) = app.selected_pull() {
         draw_detail(frame, area, pull);
     }
+}
+
+enum InboxEntry {
+    Group(&'static str),
+    Pull(usize),
+}
+
+fn grouped_entries(app: &App) -> Vec<InboxEntry> {
+    ["OPEN", "DRAFT", "CLOSED", "UNKNOWN"]
+        .into_iter()
+        .flat_map(|label| {
+            let indices = app
+                .pulls()
+                .iter()
+                .enumerate()
+                .filter_map(|(index, pull)| (pull.status_label() == label).then_some(index))
+                .collect::<Vec<_>>();
+            if indices.is_empty() {
+                Vec::new()
+            } else {
+                std::iter::once(InboxEntry::Group(label))
+                    .chain(indices.into_iter().map(InboxEntry::Pull))
+                    .collect()
+            }
+        })
+        .collect()
+}
+
+fn pull_row(pull: &Pull) -> Row<'static> {
+    let unread = if pull.unread { "●" } else { " " };
+    let state_color = match pull.state.as_str() {
+        "open" => Color::Green,
+        "closed" => Color::Red,
+        _ => Color::Yellow,
+    };
+    Row::new(vec![
+        Cell::from(unread).style(Style::default().fg(if pull.unread {
+            Color::Rgb(255, 159, 67)
+        } else {
+            Color::DarkGray
+        })),
+        Cell::from(pull.repo.clone()).style(Style::default().fg(Color::Gray)),
+        Cell::from(format!("#{} {}", pull.number, truncate(&pull.title, 54))),
+        Cell::from(pull.activity_label()).style(Style::default().fg(Color::Rgb(164, 174, 196))),
+        Cell::from(pull.status_label()).style(
+            Style::default()
+                .fg(state_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Cell::from(format_updated(&pull.updated_at)).style(Style::default().fg(Color::DarkGray)),
+    ])
+    .height(1)
 }
 
 fn draw_detail(frame: &mut ratatui::Frame, area: Rect, pull: &Pull) {

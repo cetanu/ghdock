@@ -11,6 +11,7 @@ const API_VERSION: &str = "2022-11-28";
 pub(crate) struct GithubClient {
     client: Client,
     token: String,
+    username: String,
 }
 
 impl GithubClient {
@@ -46,7 +47,20 @@ impl GithubClient {
             .user_agent("ghdock/0.1")
             .build()
             .context("could not build HTTP client")?;
-        Ok(Self { client, token })
+        let user: User = client
+            .get("https://api.github.com/user")
+            .headers(Self::headers_for(&token))
+            .send()
+            .context("requesting the authenticated GitHub user")?
+            .error_for_status()
+            .context("GitHub rejected the authenticated-user request")?
+            .json()
+            .context("decoding the authenticated GitHub user")?;
+        Ok(Self {
+            client,
+            token,
+            username: user.login,
+        })
     }
 
     pub(crate) fn fetch_snapshot(&self) -> Result<Snapshot> {
@@ -94,6 +108,20 @@ impl GithubClient {
                 .json()
                 .context("decoding pull request details")?;
 
+            let reviews = self.pull_reviews(&notification.repository.full_name, pr.number)?;
+            let approved_by_me = reviews.iter().any(|review| {
+                review.state.eq_ignore_ascii_case("approved")
+                    && review
+                        .user
+                        .as_ref()
+                        .is_some_and(|user| user.login == self.username)
+            });
+            let updated_by_me = self.latest_activity_by_me(
+                &notification.repository.full_name,
+                pr.number,
+                &notification.updated_at,
+            )?;
+
             pulls.push(Pull {
                 repo: notification.repository.full_name,
                 number: pr.number,
@@ -116,6 +144,8 @@ impl GithubClient {
                 } else {
                     pr.updated_at
                 },
+                updated_by_me,
+                approved_by_me,
                 comments: pr.comments,
                 review_comments: pr.review_comments,
                 commits: pr.commits,
@@ -133,6 +163,10 @@ impl GithubClient {
     }
 
     fn headers(&self) -> reqwest::header::HeaderMap {
+        Self::headers_for(&self.token)
+    }
+
+    fn headers_for(token: &str) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::ACCEPT,
@@ -146,11 +180,62 @@ impl GithubClient {
         );
         headers.insert(
             reqwest::header::AUTHORIZATION,
-            format!("Bearer {}", self.token)
-                .parse()
-                .expect("token header"),
+            format!("Bearer {token}").parse().expect("token header"),
         );
         headers
+    }
+
+    fn pull_reviews(&self, repository: &str, number: u64) -> Result<Vec<Review>> {
+        self.client
+            .get(format!(
+                "https://api.github.com/repos/{repository}/pulls/{number}/reviews"
+            ))
+            .query(&[("per_page", "100")])
+            .headers(self.headers())
+            .send()
+            .with_context(|| format!("requesting reviews for {repository}#{number}"))?
+            .error_for_status()
+            .context("GitHub rejected the pull request reviews request")?
+            .json()
+            .context("decoding pull request reviews")
+    }
+
+    fn latest_activity_by_me(
+        &self,
+        repository: &str,
+        number: u64,
+        notification_updated_at: &str,
+    ) -> Result<bool> {
+        let events: Vec<TimelineEvent> = self
+            .client
+            .get(format!(
+                "https://api.github.com/repos/{repository}/issues/{number}/timeline"
+            ))
+            .query(&[("per_page", "100")])
+            .headers(self.headers())
+            .send()
+            .with_context(|| format!("requesting activity for {repository}#{number}"))?
+            .error_for_status()
+            .context("GitHub rejected the pull request activity request")?
+            .json()
+            .context("decoding pull request activity")?;
+
+        let latest = events
+            .into_iter()
+            .filter_map(|event| {
+                let timestamp = event
+                    .created_at
+                    .or(event.submitted_at)
+                    .or(event.updated_at)?;
+                if timestamp.as_str() > notification_updated_at {
+                    return None;
+                }
+                let login = event.actor.or(event.user).map(|user| user.login)?;
+                Some((timestamp, login))
+            })
+            .max_by(|left, right| left.0.cmp(&right.0));
+
+        Ok(latest.is_some_and(|(_, login)| login == self.username))
     }
 }
 
@@ -191,6 +276,21 @@ struct PullRequest {
     additions: u64,
     deletions: u64,
     changed_files: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct Review {
+    user: Option<User>,
+    state: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TimelineEvent {
+    actor: Option<User>,
+    user: Option<User>,
+    created_at: Option<String>,
+    submitted_at: Option<String>,
+    updated_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

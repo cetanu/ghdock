@@ -45,11 +45,12 @@ impl App {
             .pulls
             .into_iter()
             .filter(|pull| self.show_closed || pull.state != "closed")
+            .filter(|pull| !pull.approved_by_me)
             .collect::<Vec<_>>();
         for pull in &pulls {
             let key = pull.key();
             let fingerprint = pull.fingerprint();
-            if !self.first_snapshot {
+            if !self.first_snapshot && pull.counts_as_update() {
                 match self.previous.get(&key) {
                     None => changes.push(format!("{}#{} — new item", pull.repo, pull.number)),
                     Some(previous) if previous != &fingerprint => changes.push(format!(
@@ -153,6 +154,8 @@ mod tests {
             reason: reason.into(),
             unread: true,
             updated_at: "2026-01-01T00:00:00Z".into(),
+            updated_by_me: false,
+            approved_by_me: false,
             comments: 1,
             review_comments: 0,
             commits: 2,
@@ -200,5 +203,33 @@ mod tests {
             Duration::from_secs(60)
         ));
         assert_eq!(app.pulls().len(), 1);
+    }
+
+    #[test]
+    fn approved_pulls_are_hidden() {
+        let mut app = App::new(Duration::from_secs(60), true);
+        let mut approved = pull("open", "review_requested");
+        approved.approved_by_me = true;
+
+        assert!(!app.apply_snapshot(snapshot(vec![approved]), Duration::from_secs(60)));
+        assert!(app.pulls().is_empty());
+    }
+
+    #[test]
+    fn my_activity_does_not_alert_but_other_activity_does() {
+        let mut app = App::new(Duration::from_secs(60), true);
+        assert!(!app.apply_snapshot(
+            snapshot(vec![pull("open", "review_requested")]),
+            Duration::from_secs(60)
+        ));
+
+        let mut mine = pull("open", "comment");
+        mine.updated_at = "2026-01-01T01:00:00Z".into();
+        mine.updated_by_me = true;
+        assert!(!app.apply_snapshot(snapshot(vec![mine]), Duration::from_secs(60)));
+
+        let mut theirs = pull("open", "comment");
+        theirs.updated_at = "2026-01-01T02:00:00Z".into();
+        assert!(app.apply_snapshot(snapshot(vec![theirs]), Duration::from_secs(60)));
     }
 }

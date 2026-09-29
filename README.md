@@ -17,6 +17,8 @@ Closed pull requests are hidden by default. Show them with:
 
     GHDOCK_SHOW_CLOSED=true cargo run
 
+Pull requests you have approved are removed from the inbox. Updates caused by your own activity are not treated as changes for alerts. The inbox is grouped by pull-request state.
+
 When consecutive syncs have no visible changes, the poll interval doubles up to 15 minutes, then resets to the base interval after a change. Configure the cap with:
 
     GHDOCK_MAX_POLL_INTERVAL=1800 cargo run
