@@ -26,6 +26,7 @@ pub(crate) fn run(
     loop {
         while let Ok(message) = worker_rx.try_recv() {
             match message {
+                Message::Polling => app.start_poll(),
                 Message::Snapshot {
                     result: Ok(snapshot),
                     next_delay,

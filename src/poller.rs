@@ -14,6 +14,7 @@ pub(crate) enum Command {
 }
 
 pub(crate) enum Message {
+    Polling,
     Snapshot {
         result: Result<Snapshot, String>,
         next_delay: Duration,
@@ -32,6 +33,9 @@ pub(crate) fn spawn(
         let mut next_delay = interval;
         let mut previous = None;
         loop {
+            if messages.send(Message::Polling).is_err() {
+                return;
+            }
             let result = client
                 .fetch_snapshot()
                 .map_err(|error| format!("{error:#}"));

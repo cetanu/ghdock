@@ -87,6 +87,11 @@ impl App {
         self.next_poll = Instant::now() + next_delay;
     }
 
+    pub(crate) fn start_poll(&mut self) {
+        self.loading = true;
+        self.error = None;
+    }
+
     pub(crate) fn start_refresh(&mut self) {
         self.loading = true;
         self.error = None;
@@ -231,5 +236,15 @@ mod tests {
         let mut theirs = pull("open", "comment");
         theirs.updated_at = "2026-01-01T02:00:00Z".into();
         assert!(app.apply_snapshot(snapshot(vec![theirs]), Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn polling_marks_the_app_as_loading_until_the_snapshot_arrives() {
+        let mut app = App::new(Duration::from_secs(60), true);
+        app.apply_snapshot(snapshot(Vec::new()), Duration::from_secs(60));
+
+        app.start_poll();
+
+        assert!(app.is_loading());
     }
 }
