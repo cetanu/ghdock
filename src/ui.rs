@@ -94,6 +94,7 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         "PULL REQUEST",
         "ACTIVITY",
         "STATE",
+        "MERGE",
         "UPDATED",
     ])
     .style(
@@ -115,6 +116,7 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             Cell::from(""),
             Cell::from(""),
             Cell::from(""),
+            Cell::from(""),
         ])
         .height(1),
         InboxEntry::Pull(index) => pull_row(&app.pulls()[*index]),
@@ -125,6 +127,7 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         Constraint::Min(28),
         Constraint::Length(20),
         Constraint::Length(9),
+        Constraint::Length(7),
         Constraint::Length(12),
     ];
     let table = Table::new(rows, widths)
@@ -191,6 +194,7 @@ fn pull_row(pull: &Pull) -> Row<'static> {
         "closed" => Color::Red,
         _ => Color::Yellow,
     };
+    let mergeable = if pull.ready_to_merge { "✓" } else { " " };
     Row::new(vec![
         Cell::from(unread).style(Style::default().fg(if pull.unread {
             Color::Rgb(255, 159, 67)
@@ -205,6 +209,11 @@ fn pull_row(pull: &Pull) -> Row<'static> {
                 .fg(state_color)
                 .add_modifier(Modifier::BOLD),
         ),
+        Cell::from(mergeable).style(Style::default().fg(if pull.ready_to_merge {
+            Color::Green
+        } else {
+            Color::DarkGray
+        })),
         Cell::from(format_updated(&pull.updated_at)).style(Style::default().fg(Color::DarkGray)),
     ])
     .height(1)

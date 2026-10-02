@@ -19,6 +19,7 @@ pub(crate) struct Pull {
     pub(crate) updated_at: String,
     pub(crate) updated_by_me: bool,
     pub(crate) approved_by_me: bool,
+    pub(crate) ready_to_merge: bool,
     pub(crate) comments: u64,
     pub(crate) review_comments: u64,
     pub(crate) commits: u64,
@@ -34,14 +35,15 @@ impl Pull {
 
     pub(crate) fn fingerprint(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}",
             self.state,
             self.draft,
             self.updated_at,
             self.comments,
             self.review_comments,
             self.reason,
-            self.title
+            self.title,
+            self.ready_to_merge
         )
     }
 

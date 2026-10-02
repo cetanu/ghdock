@@ -161,6 +161,7 @@ mod tests {
             updated_at: "2026-01-01T00:00:00Z".into(),
             updated_by_me: false,
             approved_by_me: false,
+            ready_to_merge: false,
             comments: 1,
             review_comments: 0,
             commits: 2,

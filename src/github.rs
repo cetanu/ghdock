@@ -116,6 +116,7 @@ impl GithubClient {
                         .as_ref()
                         .is_some_and(|user| user.login == self.username)
             });
+            let ready_to_merge = ready_to_merge(&reviews, pr.mergeable_state.as_deref());
             let updated_by_me = self.latest_activity_by_me(
                 &notification.repository.full_name,
                 pr.number,
@@ -146,6 +147,7 @@ impl GithubClient {
                 },
                 updated_by_me,
                 approved_by_me,
+                ready_to_merge,
                 comments: pr.comments,
                 review_comments: pr.review_comments,
                 commits: pr.commits,
@@ -270,6 +272,7 @@ struct PullRequest {
     html_url: String,
     user: Option<User>,
     updated_at: String,
+    mergeable_state: Option<String>,
     comments: u64,
     review_comments: u64,
     commits: u64,
@@ -298,6 +301,16 @@ struct User {
     login: String,
 }
 
+fn ready_to_merge(reviews: &[Review], mergeable_state: Option<&str>) -> bool {
+    reviews
+        .iter()
+        .any(|review| review.state.eq_ignore_ascii_case("approved"))
+        && !reviews
+            .iter()
+            .any(|review| review.state.eq_ignore_ascii_case("changes_requested"))
+        && mergeable_state == Some("clean")
+}
+
 fn pull_api_url(subject_url: &str) -> Option<String> {
     let path = subject_url.strip_prefix("https://api.github.com/repos/")?;
     let mut parts = path.split('/');
@@ -316,6 +329,25 @@ fn pull_api_url(subject_url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn review(state: &str) -> Review {
+        Review {
+            user: None,
+            state: state.into(),
+        }
+    }
+
+    #[test]
+    fn ready_to_merge_requires_approval_without_requested_changes_and_clean_checks() {
+        assert!(ready_to_merge(&[review("APPROVED")], Some("clean")));
+        assert!(!ready_to_merge(&[], Some("clean")));
+        assert!(!ready_to_merge(
+            &[review("APPROVED"), review("CHANGES_REQUESTED")],
+            Some("clean")
+        ));
+        assert!(!ready_to_merge(&[review("APPROVED")], Some("unstable")));
+        assert!(!ready_to_merge(&[review("APPROVED")], None));
+    }
 
     #[test]
     fn converts_issue_subject_urls_to_pull_urls() {
