@@ -1,6 +1,6 @@
 # ghdock
 
-ghdock is a Ratatui dashboard for the pull requests in your GitHub inbox. It polls GitHub notifications, enriches pull-request threads with their current state and counts, and alerts when a new item or a tracked detail changes.
+ghdock is a Ratatui dashboard for the pull requests in your GitHub inbox. It combines GitHub notifications with pull requests involving your account, enriches them with their current review, check, and comment counts, and alerts when a new item or a tracked detail changes.
 
 ## Setup
 
@@ -33,7 +33,7 @@ When consecutive syncs have no visible changes, the poll interval doubles up to 
 
 Changes produce a terminal bell. macOS also receives an osascript desktop notification, and Linux uses notify-send when it is installed.
 
-The GitHub notifications endpoint is the polling source because it carries inbox reasons such as review requests, comments, mentions, assignments, and state changes. The initial sync is silent; alerts begin on the next sync to avoid treating the existing inbox as new work.
+GitHub notifications provide activity labels such as review requests, comments, mentions, assignments, and state changes. GitHub pull-request search supplies the broader set of authored, assigned, subscribed, and review-related pull requests shown in the web inbox. The initial sync is silent; alerts begin on the next sync to avoid treating the existing inbox as new work.
 
 ## Structure
 

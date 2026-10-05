@@ -6,7 +6,10 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
 };
 
-use crate::{app::App, domain::Pull};
+use crate::{
+    app::App,
+    domain::{InboxSection, Pull},
+};
 
 pub(crate) fn draw(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
@@ -94,7 +97,8 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         "PULL REQUEST",
         "ACTIVITY",
         "STATE",
-        "MERGE",
+        "CHECKS",
+        "COMMENTS",
         "UPDATED",
     ])
     .style(
@@ -105,13 +109,14 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     .height(1);
     let entries = grouped_entries(app);
     let rows = entries.iter().map(|entry| match entry {
-        InboxEntry::Group(label) => Row::new(vec![
+        InboxEntry::Group(section, count) => Row::new(vec![
             Cell::from("").style(Style::default().fg(Color::DarkGray)),
-            Cell::from(*label).style(
+            Cell::from(format!("{}  {}", section.label(), count)).style(
                 Style::default()
                     .fg(Color::Rgb(255, 159, 67))
                     .add_modifier(Modifier::BOLD),
             ),
+            Cell::from(""),
             Cell::from(""),
             Cell::from(""),
             Cell::from(""),
@@ -127,7 +132,8 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         Constraint::Min(28),
         Constraint::Length(20),
         Constraint::Length(9),
-        Constraint::Length(7),
+        Constraint::Length(9),
+        Constraint::Length(9),
         Constraint::Length(12),
     ];
     let table = Table::new(rows, widths)
@@ -162,39 +168,56 @@ fn draw_table(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 }
 
 enum InboxEntry {
-    Group(&'static str),
+    Group(InboxSection, usize),
     Pull(usize),
 }
 
 fn grouped_entries(app: &App) -> Vec<InboxEntry> {
-    ["OPEN", "DRAFT", "CLOSED", "UNKNOWN"]
-        .into_iter()
-        .flat_map(|label| {
-            let indices = app
-                .pulls()
-                .iter()
-                .enumerate()
-                .filter_map(|(index, pull)| (pull.status_label() == label).then_some(index))
-                .collect::<Vec<_>>();
-            if indices.is_empty() {
-                Vec::new()
-            } else {
-                std::iter::once(InboxEntry::Group(label))
-                    .chain(indices.into_iter().map(InboxEntry::Pull))
-                    .collect()
-            }
-        })
-        .collect()
+    [
+        InboxSection::NeedsYourReview,
+        InboxSection::NeedsTeamReview,
+        InboxSection::Drafts,
+        InboxSection::Waiting,
+        InboxSection::NeedsAction,
+        InboxSection::ReadyToMerge,
+    ]
+    .into_iter()
+    .flat_map(|section| {
+        let indices = app
+            .pulls()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, pull)| (pull.section() == section).then_some(index))
+            .collect::<Vec<_>>();
+        if indices.is_empty() {
+            Vec::new()
+        } else {
+            std::iter::once(InboxEntry::Group(section, indices.len()))
+                .chain(indices.into_iter().map(InboxEntry::Pull))
+                .collect()
+        }
+    })
+    .collect()
 }
 
 fn pull_row(pull: &Pull) -> Row<'static> {
     let unread = if pull.unread { "●" } else { " " };
-    let state_color = match pull.state.as_str() {
-        "open" => Color::Green,
-        "closed" => Color::Red,
-        _ => Color::Yellow,
+    let state_color = if pull.state == "closed" {
+        Color::Red
+    } else if pull.draft {
+        Color::DarkGray
+    } else if pull.review_status == "changes_requested" {
+        Color::Red
+    } else if pull.ready_to_merge {
+        Color::Green
+    } else {
+        Color::Yellow
     };
-    let mergeable = if pull.ready_to_merge { "✓" } else { " " };
+    let checks = if pull.checks_total == 0 {
+        "—".into()
+    } else {
+        format!("{}/{}", pull.checks_passed, pull.checks_total)
+    };
     Row::new(vec![
         Cell::from(unread).style(Style::default().fg(if pull.unread {
             Color::Rgb(255, 159, 67)
@@ -204,16 +227,21 @@ fn pull_row(pull: &Pull) -> Row<'static> {
         Cell::from(pull.repo.clone()).style(Style::default().fg(Color::Gray)),
         Cell::from(format!("#{} {}", pull.number, truncate(&pull.title, 54))),
         Cell::from(pull.activity_label()).style(Style::default().fg(Color::Rgb(164, 174, 196))),
-        Cell::from(pull.status_label()).style(
+        Cell::from(pull.review_label()).style(
             Style::default()
                 .fg(state_color)
                 .add_modifier(Modifier::BOLD),
         ),
-        Cell::from(mergeable).style(Style::default().fg(if pull.ready_to_merge {
-            Color::Green
+        Cell::from(checks).style(Style::default().fg(if pull.checks_total > 0 {
+            if pull.checks_passed == pull.checks_total {
+                Color::Green
+            } else {
+                Color::Yellow
+            }
         } else {
             Color::DarkGray
         })),
+        Cell::from(pull.comments.to_string()).style(Style::default().fg(Color::Gray)),
         Cell::from(format_updated(&pull.updated_at)).style(Style::default().fg(Color::DarkGray)),
     ])
     .height(1)
@@ -231,9 +259,12 @@ fn draw_detail(frame: &mut ratatui::Frame, area: Rect, pull: &Pull) {
         height: detail_height,
     };
     let stats = format!(
-        "{}  ·  {}  ·  {} commits  ·  +{} -{}  ·  {} files",
+        "{}  ·  {}  ·  checks {}/{}  ·  {} comments  ·  {} commits  ·  +{} -{}  ·  {} files",
         pull.author,
         pull.activity_label(),
+        pull.checks_passed,
+        pull.checks_total,
+        pull.comments,
         pull.commits,
         pull.additions,
         pull.deletions,

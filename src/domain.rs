@@ -5,6 +5,40 @@ use std::{
 
 pub(crate) const MAX_NOTIFICATIONS: usize = 50;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InboxSection {
+    NeedsYourReview,
+    NeedsTeamReview,
+    Drafts,
+    Waiting,
+    NeedsAction,
+    ReadyToMerge,
+}
+
+impl InboxSection {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::NeedsYourReview => "NEEDS YOUR REVIEW",
+            Self::NeedsTeamReview => "NEEDS YOUR TEAM'S REVIEW",
+            Self::Drafts => "YOUR DRAFTS",
+            Self::Waiting => "WAITING FOR REVIEW OR CHECKS",
+            Self::NeedsAction => "NEEDS ACTION",
+            Self::ReadyToMerge => "READY TO MERGE",
+        }
+    }
+
+    pub(crate) fn rank(self) -> usize {
+        match self {
+            Self::NeedsYourReview => 0,
+            Self::NeedsTeamReview => 1,
+            Self::Drafts => 2,
+            Self::Waiting => 3,
+            Self::NeedsAction => 4,
+            Self::ReadyToMerge => 5,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Pull {
     pub(crate) repo: String,
@@ -20,6 +54,13 @@ pub(crate) struct Pull {
     pub(crate) updated_by_me: bool,
     pub(crate) approved_by_me: bool,
     pub(crate) ready_to_merge: bool,
+    pub(crate) is_author: bool,
+    pub(crate) review_requested: bool,
+    pub(crate) team_review_requested: bool,
+    pub(crate) assigned_to_me: bool,
+    pub(crate) review_status: String,
+    pub(crate) checks_passed: u64,
+    pub(crate) checks_total: u64,
     pub(crate) comments: u64,
     pub(crate) review_comments: u64,
     pub(crate) commits: u64,
@@ -35,7 +76,7 @@ impl Pull {
 
     pub(crate) fn fingerprint(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             self.state,
             self.draft,
             self.updated_at,
@@ -43,19 +84,41 @@ impl Pull {
             self.review_comments,
             self.reason,
             self.title,
-            self.ready_to_merge
+            self.ready_to_merge,
+            self.review_status,
+            self.checks_passed,
+            self.checks_total,
+            self.section().rank()
         )
     }
 
-    pub(crate) fn status_label(&self) -> &'static str {
-        if self.draft {
-            "DRAFT"
+    pub(crate) fn section(&self) -> InboxSection {
+        if self.review_requested {
+            InboxSection::NeedsYourReview
+        } else if self.team_review_requested {
+            InboxSection::NeedsTeamReview
+        } else if self.draft && self.is_author {
+            InboxSection::Drafts
+        } else if self.review_status == "changes_requested" && self.is_author {
+            InboxSection::NeedsAction
+        } else if self.ready_to_merge {
+            InboxSection::ReadyToMerge
         } else {
-            match self.state.as_str() {
-                "open" => "OPEN",
-                "closed" => "CLOSED",
-                _ => "UNKNOWN",
-            }
+            InboxSection::Waiting
+        }
+    }
+
+    pub(crate) fn review_label(&self) -> &'static str {
+        if self.state == "closed" {
+            "Closed"
+        } else if self.draft {
+            "Not ready"
+        } else if self.review_status == "changes_requested" {
+            "Changes requested"
+        } else if self.ready_to_merge {
+            "Ready to merge"
+        } else {
+            "Awaiting approval"
         }
     }
 
@@ -68,6 +131,7 @@ impl Pull {
             "assign" => "assigned to you".into(),
             "author" => "your pull request".into(),
             "team_mention" => "team mentioned".into(),
+            "subscribed" if self.assigned_to_me => "assigned to you".into(),
             "subscribed" => "subscribed".into(),
             other => other.replace('_', " "),
         }

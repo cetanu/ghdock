@@ -37,7 +37,7 @@ pub(crate) fn spawn(
                 return;
             }
             let result = client
-                .fetch_snapshot()
+                .fetch_snapshot(show_closed)
                 .map_err(|error| format!("{error:#}"));
             let changed = match &result {
                 Ok(snapshot) => {
